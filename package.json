@@ -1,0 +1,15 @@
+{
+  "name": "purescript-specular",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "postinstall": "scripts/install-purescript v0.13.3 && psc-package install"
+  },
+  "author": "Maciej Bielecki <zyla@prati.pl>",
+  "license": "MIT",
+  "devDependencies": {
+    "psc-package": "^3.0.1",
+    "pulp": "13.0.0"
+  }
+}
