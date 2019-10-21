@@ -53,7 +53,6 @@ addObserver = mkEffectFn2 \node observer -> do
 
 addDependent :: forall a. EffectFn2 (Node a) SomeNode Unit
 addDependent = mkEffectFn2 \node dependent -> do
-  -- FIXME: Broken if the same dependent is added twice!
   runEffectFn2 MutableArray.push (runFn2 Node._get Node._dependents node) dependent
   runEffectFn1 handleRefcountChange node
 

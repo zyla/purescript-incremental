@@ -24,15 +24,19 @@ main = do
   runEffectFn2 Node.annotate a_b "a <> b"
   runEffectFn2 I.addObserver a_b (logWith "a <> b")
 
-  log "a <- 'a1'; stabilize"
+  a_a <- runEffectFn3 I.map2 (mkFn2 (<>)) (I.readVar a) (I.readVar a)
+  runEffectFn2 Node.annotate a_a "a <> a"
+  runEffectFn2 I.addObserver a_a (logWith "a <> a")
+
+  log "---\na <- 'a1'; stabilize"
   runEffectFn2 I.setVar a "a1"
   I.stabilize
 
-  log "b <- 'b1'; stabilize"
+  log "---\nb <- 'b1'; stabilize"
   runEffectFn2 I.setVar b "b1"
   I.stabilize
 
-  log "a <- 'a2'; b <- 'b2'; stabilize"
+  log "---\na <- 'a2'; b <- 'b2'; stabilize"
   runEffectFn2 I.setVar a "a2"
   runEffectFn2 I.setVar b "b2"
   I.stabilize
