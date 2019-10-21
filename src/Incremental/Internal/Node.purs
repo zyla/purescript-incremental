@@ -4,7 +4,7 @@ import Prelude
 
 import Data.Function.Uncurried (Fn2, runFn2)
 import Effect (Effect)
-import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, EffectFn6, mkEffectFn1, runEffectFn1, runEffectFn2, runEffectFn6)
+import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, EffectFn6, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn6)
 import Incremental.Internal.MutableArray (MutableArray)
 import Incremental.Internal.MutableArray as MutableArray
 import Incremental.Internal.Optional (Optional)
@@ -43,6 +43,9 @@ _inRecomputeQueue = Field "inRecomputeQueue"
 
 _nextInRecomputeQueue :: forall a. Field (Node a) Mutable (Optional SomeNode)
 _nextInRecomputeQueue = Field "nextInRecomputeQueue"
+
+_name :: forall a. Field (Node a) Mutable String
+_name = Field "name"
 
 foreign import _new ::
   forall a.
@@ -89,7 +92,7 @@ create = mkEffectFn1 \source -> do
     Optional.none -- value
     0             -- height
 
--- * Queries
+-- * Utils
 
 refcount :: forall a. EffectFn1 (Node a) Int
 refcount = mkEffectFn1 \node -> do
@@ -101,3 +104,11 @@ valueExc :: forall a. EffectFn1 (Node a) a
 valueExc = mkEffectFn1 \node -> do
   value_opt <- runEffectFn2 _read _value node
   pure (Optional.fromSome value_opt)
+
+annotate :: forall a. EffectFn2 (Node a) String Unit
+annotate = mkEffectFn2 \node nm ->
+  runEffectFn3 _write _name node nm
+
+name :: forall a. EffectFn1 (Node a) String
+name = mkEffectFn1 \node ->
+  runEffectFn2 _read _name node

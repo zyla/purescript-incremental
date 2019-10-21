@@ -7,6 +7,7 @@ exports._new = function(none, source, dependents, observers, value, height) {
     height: height,
     inRecomputeQueue: false,
     nextInRecomputeQueue: none,
+    name: '',
   };
 };
 

@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Function.Uncurried (Fn2, runFn2)
 import Effect (Effect, foreachE, whileE)
+import Effect.Console as Console
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn4)
 import Effect.Unsafe (unsafePerformEffect)
 import Incremental.Internal.MutableArray as MutableArray
@@ -72,6 +73,12 @@ connect = mkEffectFn1 \node -> do
   dependencies <- source.dependencies
   foreachE dependencies \dependency -> do
     runEffectFn2 addDependent dependency (toSomeNode node)
+    dependencyHeight <- runEffectFn2 Node._read Node._height dependency
+    ourHeight <- runEffectFn2 Node._read Node._height node
+    if dependencyHeight + 1 > ourHeight then
+      runEffectFn3 Node._write Node._height node (dependencyHeight + 1)
+    else
+      pure unit
 
 disconnect :: forall a. EffectFn1 (Node a) Unit
 disconnect = mkEffectFn1 \node -> do
@@ -85,20 +92,32 @@ stabilize = do
   whileE (runEffectFn1 PQ.isNonEmpty globalRecomputeQueue) do
     node_opt <- runEffectFn1 PQ.removeMin globalRecomputeQueue
     let node = Optional.fromSome node_opt
+
+    do
+      name <- runEffectFn1 Node.name node
+      Console.log $ "stabilize: processing node " <> show name
+
     let source = runFn2 Node._get Node._source node
     -- oldValue_opt <- runEffectFn2 Node._read Node._value node
     newValue <- runEffectFn1 source.compute node
     -- if shouldNotCutOff oldValue_opt newValue
     runEffectFn3 Node._write Node._value node (Optional.some newValue)
-    let dependents = MutableArray.unsafeToArray $ runFn2 Node._get Node._dependents node
+    let dependents = runFn2 Node._get Node._dependents node
     
     -- FIXME: foreachE not desugared, closure is allocated for each element!
-    foreachE dependents \dependent -> do
-      _ <- runEffectFn2 PQ.add globalRecomputeQueue dependent
+    foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
+      added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
+      if added then do
+        name <- runEffectFn1 Node.name dependent
+        Console.log $ "stabilize: node " <> show name <> " added to recompute queue"
+      else do
+        name <- runEffectFn1 Node.name dependent
+        Console.log $ "stabilize: node " <> show name <> " already in recompute queue"
       pure unit
 
-    let observers = MutableArray.unsafeToArray $ runFn2 Node._get Node._observers node
-    foreachE observers \observer -> do
+    let observers = runFn2 Node._get Node._observers node
+    foreachE (MutableArray.unsafeToArray observers) \observer -> do
+      -- FIXME: should be done outside stabilize loop, to avoid interfering with the process
       runEffectFn1 observer newValue
 
 -- * Computational nodes
