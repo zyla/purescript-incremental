@@ -157,6 +157,7 @@ disconnect = mkEffectFn1 \node -> do
 
 stabilize :: Effect Unit
 stabilize = do
+  Console.log "stabilize begin"
   whileE (runEffectFn1 PQ.isNonEmpty globalRecomputeQueue) do
     node_opt <- runEffectFn1 PQ.removeMin globalRecomputeQueue
     let node = Optional.fromSome node_opt
@@ -191,9 +192,9 @@ stabilize = do
       then do
         let newValue = Optional.fromSome newValue_opt
         runEffectFn3 Node._write Node._value node (Optional.some newValue)
-        let dependents = runFn2 Node._get Node._dependents node
         
         -- FIXME: foreachE not desugared, closure is allocated for each element!
+        let dependents = runFn2 Node._get Node._dependents node
         foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
           added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
           if added then do
@@ -210,6 +211,7 @@ stabilize = do
           -- (like in Specular - a FIFO queue)
           runEffectFn1 observer newValue
       else pure unit
+  Console.log "stabilize end"
 
 -- * Computational nodes
 
@@ -230,14 +232,14 @@ map = mkEffectFn2 \fn a -> do
     , dependencies: pure deps
     }
 
-mapOptional :: forall a b. EffectFn2 (a -> b) (Node a) (Node b)
+mapOptional :: forall a b. EffectFn2 (a -> Optional b) (Node a) (Node b)
 mapOptional = mkEffectFn2 \fn a -> do
   let deps = [toSomeNode a]
   runEffectFn1 Node.create 
     { compute: mkEffectFn1 \_ -> do
         value_a <- runEffectFn2 Node._read Node._value a
         pure (if Optional.isSome value_a
-              then Optional.some (fn (Optional.fromSome value_a))
+              then fn (Optional.fromSome value_a)
               else Optional.none)
     , dependencies: pure deps
     }
