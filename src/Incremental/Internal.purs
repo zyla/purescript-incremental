@@ -320,14 +320,14 @@ fold = mkEffectFn3 \fn initial a -> do
   runEffectFn1 Node.create 
     { compute: mkEffectFn1 \node -> do
         state_opt <- runEffectFn2 Node._read Node._value node
+        let state = if Optional.isSome state_opt then Optional.fromSome state_opt else initial
         input_opt <- runEffectFn2 Node._read Node._value a
-        result <- if Optional.isSome state_opt && Optional.isSome input_opt then
-            pure (runFn2 fn (Optional.fromSome input_opt) (Optional.fromSome state_opt))
-          else if Optional.isSome state_opt then
-            pure Optional.none
+        result <-
+          if Optional.isSome input_opt then
+            pure (runFn2 fn (Optional.fromSome input_opt) state)
           else
-            pure (Optional.some initial)
-        Console.log $ "fold: " <> unsafeStringify result
+            pure (Optional.some state)
+--        Console.log $ "fold: " <> (unsafeCoerce result :: String) <> ", " <> (unsafeCoerce result).constructor.name
         pure result
     , dependencies: pure deps
     }
