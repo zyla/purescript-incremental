@@ -8,6 +8,7 @@ import Effect.Console as Console
 import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn4)
 import Effect.Unsafe (unsafePerformEffect)
+import Global.Unsafe (unsafeStringify)
 import Incremental.Internal.MutableArray as MutableArray
 import Incremental.Internal.Node (Node, SomeNode, Observer, toSomeNode)
 import Incremental.Internal.Node as Node
@@ -142,6 +143,7 @@ connect = mkEffectFn1 \node -> do
     else
       pure unit
 
+--  Console.log $ "connect: node " <> show (Node.name' node) <> ": compute"
   value <- runEffectFn1 source.compute node
   runEffectFn3 Node._write Node._value node value
 
@@ -210,7 +212,9 @@ stabilize = do
           -- FIXME: should be done outside stabilize loop, to avoid interfering with the process
           -- (like in Specular - a FIFO queue)
           runEffectFn1 observer newValue
-      else pure unit
+      else
+        Console.log $ "stabilize: node " <> show name <> " cut off"
+
   Console.log "stabilize end"
 
 -- * Computational nodes
@@ -317,10 +321,14 @@ fold = mkEffectFn3 \fn initial a -> do
     { compute: mkEffectFn1 \node -> do
         state_opt <- runEffectFn2 Node._read Node._value node
         input_opt <- runEffectFn2 Node._read Node._value a
-        if Optional.isSome state_opt && Optional.isSome input_opt then
-          pure (runFn2 fn (Optional.fromSome input_opt) (Optional.fromSome state_opt))
-        else
-          pure (Optional.some initial)
+        result <- if Optional.isSome state_opt && Optional.isSome input_opt then
+            pure (runFn2 fn (Optional.fromSome input_opt) (Optional.fromSome state_opt))
+          else if Optional.isSome state_opt then
+            pure Optional.none
+          else
+            pure (Optional.some initial)
+        Console.log $ "fold: " <> unsafeStringify result
+        pure result
     , dependencies: pure deps
     }
 
