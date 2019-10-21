@@ -69,7 +69,8 @@ foreign import _write :: forall s a. EffectFn3 (Field s Mutable a) s a Unit
 -- * Node source
 
 type Source a =
-  { compute :: EffectFn1 (Node a) a
+  { compute :: EffectFn1 (Node a) (Optional a)
+    -- Compute the node value, if none is returned then we don't change value and don't propagate.
   , dependencies :: Effect (Array SomeNode)
   }
 

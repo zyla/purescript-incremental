@@ -11,12 +11,11 @@ import Effect.Unsafe (unsafePerformEffect)
 import Incremental.Internal.MutableArray as MutableArray
 import Incremental.Internal.Node (Node, SomeNode, Observer, toSomeNode)
 import Incremental.Internal.Node as Node
+import Incremental.Internal.Optional (Optional)
 import Incremental.Internal.Optional as Optional
 import Incremental.Internal.PriorityQueue as PQ
 import Partial.Unsafe (unsafeCrashWith)
 import Unsafe.Coerce (unsafeCoerce)
-
-newtype Var a = Var (Node a)
 
 globalRecomputeQueue :: PQ.PQ SomeNode
 globalRecomputeQueue = unsafePerformEffect $
@@ -34,11 +33,16 @@ globalAdjustHeightQueue = unsafePerformEffect $
     Node._inRecomputeQueue
     Node._nextInRecomputeQueue
 
+-- * Var
+
+newtype Var a = Var (Node a)
+
 newVar :: forall a. EffectFn1 a (Var a)
 newVar = mkEffectFn1 \val -> do
   node <- runEffectFn1 Node.create 
-    { compute: mkEffectFn1 \node ->
-        runEffectFn1 Node.valueExc node
+    { compute: mkEffectFn1 \node -> do
+        value <- runEffectFn1 Node.valueExc node
+        pure (Optional.some value)
     , dependencies: pure []
     }
   runEffectFn3 Node._write Node._value node (Optional.some val)
@@ -53,6 +57,28 @@ setVar = mkEffectFn2 \(Var node) val -> do
 readVar :: forall a. Var a -> Node a
 readVar (Var x) = x
 
+-- * Event
+
+newtype Event a = Event (Node a)
+
+newEvent :: forall a. Effect (Event a)
+newEvent = do
+  node <- runEffectFn1 Node.create 
+    { compute: mkEffectFn1 \node -> do
+        runEffectFn2 Node._read Node._value node
+    , dependencies: pure []
+    }
+  pure (Event node)
+
+triggerEvent :: forall a. EffectFn2 (Event a) a Unit
+triggerEvent = mkEffectFn2 \(Event node) val -> do
+  runEffectFn3 Node._write Node._value node (Optional.some val)
+  _ <- runEffectFn2 PQ.add globalRecomputeQueue (toSomeNode node)
+  pure unit
+
+readEvent :: forall a. Event a -> Node a
+readEvent (Event x) = x
+
 -- * Observers and dependents
 
 addObserver :: forall a. EffectFn2 (Node a) (Observer a) Unit
@@ -61,9 +87,15 @@ addObserver = mkEffectFn2 \node observer -> do
   runEffectFn2 MutableArray.push (runFn2 Node._get Node._observers node) observer
   runEffectFn2 handleRefcountChange node oldRefcount
 
+removeObserver :: forall a. EffectFn2 (Node a) (Observer a) Unit
+removeObserver = mkEffectFn2 \node observer -> do
+  oldRefcount <- runEffectFn1 Node.refcount node
+  runEffectFn2 MutableArray.remove (runFn2 Node._get Node._observers node) observer
+  runEffectFn2 handleRefcountChange node oldRefcount
+
 addDependent :: forall a. EffectFn2 (Node a) SomeNode Unit
 addDependent = mkEffectFn2 \node dependent -> do
-  Console.log $ "addDependent " <> show (Node.name' node) <> " -> " <> show (Node.name' dependent)
+--  Console.log $ "addDependent " <> show (Node.name' node) <> " -> " <> show (Node.name' dependent)
 
   oldRefcount <- runEffectFn1 Node.refcount node
   runEffectFn2 MutableArray.push (runFn2 Node._get Node._dependents node) dependent
@@ -95,7 +127,7 @@ handleRefcountChange = mkEffectFn2 \node oldRefcount -> do
 -- - node has correct height
 connect :: forall a. EffectFn1 (Node a) Unit
 connect = mkEffectFn1 \node -> do
-  Console.log $ "connect " <> show (Node.name' node)
+--  Console.log $ "connect " <> show (Node.name' node)
 
   let source = runFn2 Node._get Node._source node
 
@@ -111,7 +143,7 @@ connect = mkEffectFn1 \node -> do
       pure unit
 
   value <- runEffectFn1 source.compute node
-  runEffectFn3 Node._write Node._value node (Optional.some value)
+  runEffectFn3 Node._write Node._value node value
 
 disconnect :: forall a. EffectFn1 (Node a) Unit
 disconnect = mkEffectFn1 \node -> do
@@ -152,29 +184,41 @@ stabilize = do
 
       let source = runFn2 Node._get Node._source node
       -- oldValue_opt <- runEffectFn2 Node._read Node._value node
-      newValue <- runEffectFn1 source.compute node
-      -- if shouldNotCutOff oldValue_opt newValue
-      runEffectFn3 Node._write Node._value node (Optional.some newValue)
-      let dependents = runFn2 Node._get Node._dependents node
-      
-      -- FIXME: foreachE not desugared, closure is allocated for each element!
-      foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
-        added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
-        if added then do
-          dependentName <- runEffectFn1 Node.name dependent
-          Console.log $ "stabilize: node " <> show dependentName <> " added to recompute queue"
-        else do
-          dependentName <- runEffectFn1 Node.name dependent
-          Console.log $ "stabilize: node " <> show dependentName <> " already in recompute queue"
-        pure unit
+      newValue_opt <- runEffectFn1 source.compute node
 
-      let observers = runFn2 Node._get Node._observers node
-      foreachE (MutableArray.unsafeToArray observers) \observer -> do
-        -- FIXME: should be done outside stabilize loop, to avoid interfering with the process
-        -- (like in Specular - a FIFO queue)
-        runEffectFn1 observer newValue
+      if Optional.isSome newValue_opt
+        -- && shouldNotCutOff oldValue_opt newValue
+      then do
+        let newValue = Optional.fromSome newValue_opt
+        runEffectFn3 Node._write Node._value node (Optional.some newValue)
+        let dependents = runFn2 Node._get Node._dependents node
+        
+        -- FIXME: foreachE not desugared, closure is allocated for each element!
+        foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
+          added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
+          if added then do
+            dependentName <- runEffectFn1 Node.name dependent
+            Console.log $ "stabilize: node " <> show dependentName <> " added to recompute queue"
+          else do
+            dependentName <- runEffectFn1 Node.name dependent
+            Console.log $ "stabilize: node " <> show dependentName <> " already in recompute queue"
+          pure unit
+
+        let observers = runFn2 Node._get Node._observers node
+        foreachE (MutableArray.unsafeToArray observers) \observer -> do
+          -- FIXME: should be done outside stabilize loop, to avoid interfering with the process
+          -- (like in Specular - a FIFO queue)
+          runEffectFn1 observer newValue
+      else pure unit
 
 -- * Computational nodes
+
+constant :: forall a. EffectFn1 a (Node a)
+constant = mkEffectFn1 \value -> do
+  runEffectFn1 Node.create 
+    { compute: mkEffectFn1 \_ -> pure (Optional.some value)
+    , dependencies: pure []
+    }
 
 map :: forall a b. EffectFn2 (a -> b) (Node a) (Node b)
 map = mkEffectFn2 \fn a -> do
@@ -182,7 +226,19 @@ map = mkEffectFn2 \fn a -> do
   runEffectFn1 Node.create 
     { compute: mkEffectFn1 \_ -> do
         value_a <- runEffectFn1 Node.valueExc a
-        pure (fn value_a)
+        pure (Optional.some (fn value_a))
+    , dependencies: pure deps
+    }
+
+mapOptional :: forall a b. EffectFn2 (a -> b) (Node a) (Node b)
+mapOptional = mkEffectFn2 \fn a -> do
+  let deps = [toSomeNode a]
+  runEffectFn1 Node.create 
+    { compute: mkEffectFn1 \_ -> do
+        value_a <- runEffectFn2 Node._read Node._value a
+        pure (if Optional.isSome value_a
+              then Optional.some (fn (Optional.fromSome value_a))
+              else Optional.none)
     , dependencies: pure deps
     }
 
@@ -193,7 +249,7 @@ map2 = mkEffectFn3 \fn a b -> do
     { compute: mkEffectFn1 \_ -> do
         value_a <- runEffectFn1 Node.valueExc a
         value_b <- runEffectFn1 Node.valueExc b
-        pure (runFn2 fn value_a value_b)
+        pure (Optional.some (runFn2 fn value_a value_b))
     , dependencies: pure deps
     }
 
@@ -231,7 +287,7 @@ bind_ = mkEffectFn2 \lhs fn -> do
           runEffectFn2 removeDependent (Optional.fromSome old_rhs_opt) (toSomeNode main)
         else pure unit
 
-        pure rhs
+        pure (Optional.some rhs)
     , dependencies: do
         pure [toSomeNode lhs]
     }
@@ -239,7 +295,8 @@ bind_ = mkEffectFn2 \lhs fn -> do
   main <- runEffectFn1 Node.create 
     { compute: mkEffectFn1 \_ -> do
         rhs <- runEffectFn1 Node.valueExc rhs_node
-        runEffectFn1 Node.valueExc rhs
+        value <- runEffectFn1 Node.valueExc rhs
+        pure (Optional.some value)
     , dependencies: do
         rhs_opt <- runEffectFn2 Node._read Node._value rhs_node
         if Optional.isSome rhs_opt then
@@ -250,6 +307,20 @@ bind_ = mkEffectFn2 \lhs fn -> do
     }
   Ref.write (Optional.some main) main_node_ref 
   pure main
+
+fold :: forall a b. EffectFn3 (Fn2 a b (Optional b)) b (Node a) (Node b)
+fold = mkEffectFn3 \fn initial a -> do
+  let deps = [toSomeNode a]
+  runEffectFn1 Node.create 
+    { compute: mkEffectFn1 \node -> do
+        state_opt <- runEffectFn2 Node._read Node._value node
+        input_opt <- runEffectFn2 Node._read Node._value a
+        if Optional.isSome state_opt && Optional.isSome input_opt then
+          pure (runFn2 fn (Optional.fromSome input_opt) (Optional.fromSome state_opt))
+        else
+          pure (Optional.some initial)
+    , dependencies: pure deps
+    }
 
 -- * Adjust height
 
