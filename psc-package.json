@@ -8,6 +8,7 @@
     "prelude",
     "unsafe-coerce",
     "unsafe-reference",
+    "refs",
     "partial",
     "functions",
     "psci-support"

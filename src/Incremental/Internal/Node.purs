@@ -5,6 +5,7 @@ import Prelude
 import Data.Function.Uncurried (Fn2, runFn2)
 import Effect (Effect)
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, EffectFn6, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn6)
+import Effect.Unsafe (unsafePerformEffect)
 import Incremental.Internal.MutableArray (MutableArray)
 import Incremental.Internal.MutableArray as MutableArray
 import Incremental.Internal.Optional (Optional)
@@ -37,6 +38,9 @@ _value = Field "value"
 
 _height :: forall a. Field (Node a) Mutable Int
 _height = Field "height"
+
+_adjustedHeight :: forall a. Field (Node a) Mutable Int
+_adjustedHeight = Field "adjustedHeight"
 
 _inRecomputeQueue :: forall a. Field (Node a) Mutable Boolean
 _inRecomputeQueue = Field "inRecomputeQueue"
@@ -112,3 +116,6 @@ annotate = mkEffectFn2 \node nm ->
 name :: forall a. EffectFn1 (Node a) String
 name = mkEffectFn1 \node ->
   runEffectFn2 _read _name node
+
+name' :: forall a. Node a -> String
+name' node = unsafePerformEffect (runEffectFn1 name node)

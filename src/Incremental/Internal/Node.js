@@ -5,6 +5,7 @@ exports._new = function(none, source, dependents, observers, value, height) {
     observers: observers,
     value: value,
     height: height,
+    adjustedHeight: height,
     inRecomputeQueue: false,
     nextInRecomputeQueue: none,
     name: '',

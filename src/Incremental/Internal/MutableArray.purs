@@ -15,3 +15,7 @@ unsafeToArray x = unsafeCoerce x
 
 foreign import push :: forall a. EffectFn2 (MutableArray a) a Unit
 foreign import length :: forall a. EffectFn1 (MutableArray a) Int
+
+-- Remove first copy of an element by reference equality.
+-- Warning: O(n).
+foreign import remove :: forall a. EffectFn2 (MutableArray a) a Unit
