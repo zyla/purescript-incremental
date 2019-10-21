@@ -82,7 +82,7 @@ connect = mkEffectFn1 \node -> do
 disconnect :: forall a. EffectFn1 (Node a) Unit
 disconnect = mkEffectFn1 \node -> do
   -- TODO
-  pure unit
+  unsafeCrashWith "TODO: disconnect unimplemented"
 
 -- * Recompute
 
