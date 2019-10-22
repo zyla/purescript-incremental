@@ -372,6 +372,17 @@ leftmost = mkEffectFn1 \inputs -> do
     , dependencies: pure (toSomeNodeArray inputs)
     }
 
+traceChanges :: forall a. EffectFn2 (EffectFn1 a Unit) (Node a) (Node a)
+traceChanges = mkEffectFn2 \fn input -> do
+  runEffectFn1 Node.create 
+    { compute: mkEffectFn1 \node -> do
+        value_opt <- runEffectFn2 Node._read Node._value input
+        isFiring <- runEffectFn1 Node.isChangingInCurrentStabilization input
+        if isFiring then runEffectFn1 fn (Optional.fromSome value_opt) else pure unit
+        pure value_opt
+    , dependencies: pure [toSomeNode input]
+    }
+
 -- * Adjust height
 
 ensureHeight :: forall a. EffectFn2 (Node a) Int Unit
