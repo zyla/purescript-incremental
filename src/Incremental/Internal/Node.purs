@@ -1,13 +1,19 @@
-module Incremental.Internal.Node where
+module Incremental.Internal.Node
+  ( module Incremental.Internal.Node
+  , module Incremental.Internal.Mutable
+  ) where
 
 import Prelude
 
-import Data.Function.Uncurried (Fn2, runFn2)
+import Data.Function.Uncurried (runFn2)
 import Effect (Effect)
-import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, EffectFn6, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn6)
+import Effect.Ref as Ref
+import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn6, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn6)
 import Effect.Unsafe (unsafePerformEffect)
+import Incremental.Internal.Global (globalCurrentStabilizationNum)
 import Incremental.Internal.MutableArray (MutableArray)
 import Incremental.Internal.MutableArray as MutableArray
+import Incremental.Internal.Mutable (Any, Field(..), Immutable, Mutable, _get, _read, _write)
 import Incremental.Internal.Optional (Optional)
 import Incremental.Internal.Optional as Optional
 import Unsafe.Coerce (unsafeCoerce)
@@ -15,12 +21,6 @@ import Unsafe.Coerce (unsafeCoerce)
 foreign import data Node :: Type -> Type
 
 -- * Node fields
-
-foreign import kind Mutability
-foreign import data Mutable :: Mutability
-foreign import data Immutable :: Mutability
-
-newtype Field s (m :: Mutability) a = Field String
 
 _source :: forall a. Field (Node a) Immutable (Source a)
 _source = Field "source"
@@ -51,6 +51,11 @@ _nextInRecomputeQueue = Field "nextInRecomputeQueue"
 _name :: forall a. Field (Node a) Mutable String
 _name = Field "name"
 
+-- Note: this is not just a freshness timestamp!
+-- This should be only set when the node, treated as an Event, fires.
+_changedAt :: forall a. Field (Node a) Mutable Int
+_changedAt = Field "changedAt"
+
 foreign import _new ::
   forall a.
   EffectFn6
@@ -62,10 +67,6 @@ foreign import _new ::
     Int
   (Node a)
 
-foreign import _get :: forall s a. Fn2 (Field s Immutable a) s a
-foreign import _read :: forall s a. EffectFn2 (Field s Mutable a) s a
-foreign import _write :: forall s a. EffectFn3 (Field s Mutable a) s a Unit
-
 -- * Node source
 
 type Source a =
@@ -75,8 +76,6 @@ type Source a =
   }
 
 -- * Existential
-
-foreign import data Any :: Type
 
 type SomeNode = Node Any
 
@@ -120,3 +119,9 @@ name = mkEffectFn1 \node ->
 
 name' :: forall a. Node a -> String
 name' node = unsafePerformEffect (runEffectFn1 name node)
+
+isChangingInCurrentStabilization :: forall a. EffectFn1 (Node a) Boolean
+isChangingInCurrentStabilization = mkEffectFn1 \node -> do
+  currentStabilizationNum <- Ref.read globalCurrentStabilizationNum
+  changedAt <- runEffectFn2 _read _changedAt node
+  pure (changedAt == currentStabilizationNum)

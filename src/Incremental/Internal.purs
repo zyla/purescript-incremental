@@ -8,7 +8,7 @@ import Effect.Console as Console
 import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn4)
 import Effect.Unsafe (unsafePerformEffect)
-import Global.Unsafe (unsafeStringify)
+import Incremental.Internal.Global (globalCurrentStabilizationNum)
 import Incremental.Internal.MutableArray as MutableArray
 import Incremental.Internal.Node (Node, SomeNode, Observer, toSomeNode)
 import Incremental.Internal.Node as Node
@@ -18,16 +18,10 @@ import Incremental.Internal.PriorityQueue as PQ
 import Partial.Unsafe (unsafeCrashWith)
 import Unsafe.Coerce (unsafeCoerce)
 
+-- * Globals
+
 globalRecomputeQueue :: PQ.PQ SomeNode
 globalRecomputeQueue = unsafePerformEffect $
-  runEffectFn4 PQ.new
-    Optional.none
-    Node._height
-    Node._inRecomputeQueue
-    Node._nextInRecomputeQueue
-
-globalAdjustHeightQueue :: PQ.PQ SomeNode
-globalAdjustHeightQueue = unsafePerformEffect $
   runEffectFn4 PQ.new
     Optional.none
     Node._height
@@ -160,6 +154,7 @@ disconnect = mkEffectFn1 \node -> do
 stabilize :: Effect Unit
 stabilize = do
   Console.log "stabilize begin"
+  currentStabilizationNum <- Ref.modify (_ + 1) globalCurrentStabilizationNum 
   whileE (runEffectFn1 PQ.isNonEmpty globalRecomputeQueue) do
     node_opt <- runEffectFn1 PQ.removeMin globalRecomputeQueue
     let node = Optional.fromSome node_opt
@@ -194,6 +189,7 @@ stabilize = do
       then do
         let newValue = Optional.fromSome newValue_opt
         runEffectFn3 Node._write Node._value node (Optional.some newValue)
+        runEffectFn3 Node._write Node._changedAt node currentStabilizationNum
         
         -- FIXME: foreachE not desugared, closure is allocated for each element!
         let dependents = runFn2 Node._get Node._dependents node

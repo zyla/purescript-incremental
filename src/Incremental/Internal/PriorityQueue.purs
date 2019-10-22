@@ -1,7 +1,7 @@
 module Incremental.Internal.PriorityQueue where
 
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn4)
-import Incremental.Internal.Node (Any, Field, Mutable)
+import Incremental.Internal.Mutable (Any, Field, Mutable)
 import Incremental.Internal.Optional (Optional)
 
 foreign import data PQ :: Type -> Type
