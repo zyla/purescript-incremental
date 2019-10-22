@@ -275,6 +275,10 @@ map2 = mkEffectFn3 \fn a b -> do
 -- - if we compute and the LHS changes, our height changes! We may need to re-add ourselves to recompute queue
 bind_ :: forall a b. EffectFn2 (Node a) (a -> Node b) (Node b)
 bind_ = mkEffectFn2 \lhs fn -> do
+  runEffectFn3 switch true lhs fn
+
+switch :: forall a b. EffectFn3 Boolean (Node a) (a -> Node b) (Node b)
+switch = mkEffectFn3 \alwaysFire lhs fn -> do
   main_node_ref <- Ref.new Optional.none
   rhs_node <- runEffectFn1 Node.create 
     { compute: mkEffectFn1 \node -> do
@@ -302,12 +306,15 @@ bind_ = mkEffectFn2 \lhs fn -> do
     , dependencies: do
         pure [toSomeNode lhs]
     }
-  runEffectFn2 Node.annotate rhs_node "bind aux"
+  runEffectFn2 Node.annotate rhs_node "switch aux"
   main <- runEffectFn1 Node.create 
     { compute: mkEffectFn1 \_ -> do
         rhs <- runEffectFn1 Node.valueExc rhs_node
-        value <- runEffectFn1 Node.valueExc rhs
-        pure (Optional.some value)
+        isFiring <- runEffectFn1 Node.isChangingInCurrentStabilization rhs
+        if alwaysFire || isFiring then do
+          runEffectFn2 Node._read Node._value rhs
+        else
+          pure Optional.none
     , dependencies: do
         rhs_opt <- runEffectFn2 Node._read Node._value rhs_node
         if Optional.isSome rhs_opt then
