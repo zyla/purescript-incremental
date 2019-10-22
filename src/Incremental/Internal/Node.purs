@@ -82,6 +82,9 @@ type SomeNode = Node Any
 toSomeNode :: forall a. Node a -> SomeNode
 toSomeNode = unsafeCoerce
 
+toSomeNodeArray :: forall a. Array (Node a) -> Array SomeNode
+toSomeNodeArray = unsafeCoerce
+
 -- * Creation
 
 create :: forall a. EffectFn1 (Source a) (Node a)

@@ -2,6 +2,7 @@ module Incremental.Internal where
 
 import Prelude
 
+import Control.Monad.ST.Internal (foreach)
 import Data.Function.Uncurried (Fn2, runFn2)
 import Effect (Effect, foreachE, whileE)
 import Effect.Console as Console
@@ -9,9 +10,10 @@ import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn4)
 import Effect.Unsafe (unsafePerformEffect)
+import Incremental.Internal.Effect (foreachUntil)
 import Incremental.Internal.Global (globalCurrentStabilizationNum)
 import Incremental.Internal.MutableArray as MutableArray
-import Incremental.Internal.Node (Node, SomeNode, Observer, toSomeNode)
+import Incremental.Internal.Node (Node, SomeNode, Observer, toSomeNode, toSomeNodeArray)
 import Incremental.Internal.Node as Node
 import Incremental.Internal.Optional (Optional)
 import Incremental.Internal.Optional as Optional
@@ -355,6 +357,19 @@ sample = mkEffectFn3 \fn signal clock -> do
 
         pure result
     , dependencies: pure [toSomeNode signal, toSomeNode clock]
+    }
+
+leftmost :: forall a. EffectFn1 (Array (Node a)) (Node a)
+leftmost = mkEffectFn1 \inputs -> do
+  runEffectFn1 Node.create 
+    { compute: mkEffectFn1 \node -> do
+        runEffectFn2 foreachUntil inputs $ mkEffectFn1 \input -> do
+          isFiring <- runEffectFn1 Node.isChangingInCurrentStabilization input
+          if isFiring then
+            runEffectFn2 Node._read Node._value input
+          else
+            pure Optional.none
+    , dependencies: pure (toSomeNodeArray inputs)
     }
 
 -- * Adjust height
