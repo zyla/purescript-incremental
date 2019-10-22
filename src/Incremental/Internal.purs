@@ -5,6 +5,7 @@ import Prelude
 import Data.Function.Uncurried (Fn2, runFn2)
 import Effect (Effect, foreachE, whileE)
 import Effect.Console as Console
+import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn4)
 import Effect.Unsafe (unsafePerformEffect)
@@ -27,6 +28,9 @@ globalRecomputeQueue = unsafePerformEffect $
     Node._height
     Node._inRecomputeQueue
     Node._nextInRecomputeQueue
+
+globalLastStabilizationNum :: Ref Int
+globalLastStabilizationNum = unsafePerformEffect $ Ref.new 0
 
 -- * Var
 
@@ -90,7 +94,7 @@ removeObserver = mkEffectFn2 \node observer -> do
 
 addDependent :: forall a. EffectFn2 (Node a) SomeNode Unit
 addDependent = mkEffectFn2 \node dependent -> do
---  Console.log $ "addDependent " <> show (Node.name' node) <> " -> " <> show (Node.name' dependent)
+  trace $ "addDependent " <> show (Node.name' node) <> " -> " <> show (Node.name' dependent)
 
   oldRefcount <- runEffectFn1 Node.refcount node
   runEffectFn2 MutableArray.push (runFn2 Node._get Node._dependents node) dependent
@@ -122,7 +126,7 @@ handleRefcountChange = mkEffectFn2 \node oldRefcount -> do
 -- - node has correct height
 connect :: forall a. EffectFn1 (Node a) Unit
 connect = mkEffectFn1 \node -> do
---  Console.log $ "connect " <> show (Node.name' node)
+--  trace $ "connect " <> show (Node.name' node)
 
   let source = runFn2 Node._get Node._source node
 
@@ -137,7 +141,7 @@ connect = mkEffectFn1 \node -> do
     else
       pure unit
 
---  Console.log $ "connect: node " <> show (Node.name' node) <> ": compute"
+--  trace $ "connect: node " <> show (Node.name' node) <> ": compute"
   value <- runEffectFn1 source.compute node
   runEffectFn3 Node._write Node._value node value
 
@@ -153,8 +157,10 @@ disconnect = mkEffectFn1 \node -> do
 
 stabilize :: Effect Unit
 stabilize = do
-  Console.log "stabilize begin"
-  currentStabilizationNum <- Ref.modify (_ + 1) globalCurrentStabilizationNum 
+  trace "stabilize begin"
+  currentStabilizationNum <- Ref.modify (_ + 1) globalLastStabilizationNum 
+  Ref.write currentStabilizationNum globalCurrentStabilizationNum
+
   whileE (runEffectFn1 PQ.isNonEmpty globalRecomputeQueue) do
     node_opt <- runEffectFn1 PQ.removeMin globalRecomputeQueue
     let node = Optional.fromSome node_opt
@@ -165,7 +171,7 @@ stabilize = do
     adjustedHeight <- runEffectFn2 Node._read Node._adjustedHeight node
 
     if adjustedHeight > height then do
-      Console.log $ "stabilize: node " <> show name <> ": height bump " <> show height <> " -> " <> show adjustedHeight
+      trace $ "stabilize: node " <> show name <> ": height bump " <> show height <> " -> " <> show adjustedHeight
 
       let dependents = runFn2 Node._get Node._dependents node
       foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
@@ -178,7 +184,7 @@ stabilize = do
       pure unit
 
     else do
-      Console.log $ "stabilize: node " <> show name <> ": compute at height " <> show height
+      trace $ "stabilize: node " <> show name <> ": compute at height " <> show height
 
       let source = runFn2 Node._get Node._source node
       -- oldValue_opt <- runEffectFn2 Node._read Node._value node
@@ -197,10 +203,10 @@ stabilize = do
           added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
           if added then do
             dependentName <- runEffectFn1 Node.name dependent
-            Console.log $ "stabilize: node " <> show dependentName <> " added to recompute queue"
+            trace $ "stabilize: node " <> show dependentName <> " added to recompute queue"
           else do
             dependentName <- runEffectFn1 Node.name dependent
-            Console.log $ "stabilize: node " <> show dependentName <> " already in recompute queue"
+            trace $ "stabilize: node " <> show dependentName <> " already in recompute queue"
           pure unit
 
         let observers = runFn2 Node._get Node._observers node
@@ -209,9 +215,10 @@ stabilize = do
           -- (like in Specular - a FIFO queue)
           runEffectFn1 observer newValue
       else
-        Console.log $ "stabilize: node " <> show name <> " cut off"
+        trace $ "stabilize: node " <> show name <> " cut off"
 
-  Console.log "stabilize end"
+  Ref.write (-1) globalCurrentStabilizationNum
+  trace "stabilize end"
 
 -- * Computational nodes
 
@@ -270,7 +277,7 @@ bind_ = mkEffectFn2 \lhs fn -> do
   rhs_node <- runEffectFn1 Node.create 
     { compute: mkEffectFn1 \node -> do
 
-        Console.log "Computing bind_rhs"
+        trace "Computing bind_rhs"
 
         value_lhs <- runEffectFn1 Node.valueExc lhs
         let rhs = fn value_lhs
@@ -317,15 +324,37 @@ fold = mkEffectFn3 \fn initial a -> do
     { compute: mkEffectFn1 \node -> do
         state_opt <- runEffectFn2 Node._read Node._value node
         let state = if Optional.isSome state_opt then Optional.fromSome state_opt else initial
-        input_opt <- runEffectFn2 Node._read Node._value a
+
+        hasInput <- runEffectFn1 Node.isChangingInCurrentStabilization a
+
         result <-
-          if Optional.isSome input_opt then
-            pure (runFn2 fn (Optional.fromSome input_opt) state)
+          if hasInput then do
+            input <- runEffectFn1 Node.valueExc a
+            pure (runFn2 fn input state)
           else
             pure (Optional.some state)
---        Console.log $ "fold: " <> (unsafeCoerce result :: String) <> ", " <> (unsafeCoerce result).constructor.name
+
+--        trace $ "fold: " <> (unsafeCoerce result :: String) <> ", " <> (unsafeCoerce result).constructor.name
         pure result
     , dependencies: pure deps
+    }
+
+sample :: forall a b c. EffectFn3 (Fn2 a b (Optional c)) (Node a) (Node b) (Node c)
+sample = mkEffectFn3 \fn signal clock -> do
+  runEffectFn1 Node.create 
+    { compute: mkEffectFn1 \node -> do
+        hasInput <- runEffectFn1 Node.isChangingInCurrentStabilization clock
+
+        result <-
+          if hasInput then do
+            signal_value <- runEffectFn1 Node.valueExc signal
+            clock_value <- runEffectFn1 Node.valueExc clock
+            pure (runFn2 fn signal_value clock_value)
+          else
+            pure Optional.none
+
+        pure result
+    , dependencies: pure [toSomeNode signal, toSomeNode clock]
     }
 
 -- * Adjust height
@@ -339,3 +368,9 @@ ensureHeight = mkEffectFn2 \node newHeight -> do
 
 effectCrash :: forall a. String -> Effect a
 effectCrash msg = unsafeCoerce ((\_ -> unsafeCrashWith msg) :: Unit -> a) :: Effect a
+
+isTracing :: Boolean
+isTracing = false
+
+trace :: String -> Effect Unit
+trace = if isTracing then Console.log else \_ -> pure unit

@@ -9,4 +9,4 @@ import Effect.Unsafe (unsafePerformEffect)
 -- * Globals
 
 globalCurrentStabilizationNum :: Ref Int
-globalCurrentStabilizationNum = unsafePerformEffect $ Ref.new 1
+globalCurrentStabilizationNum = unsafePerformEffect $ Ref.new (-1)
