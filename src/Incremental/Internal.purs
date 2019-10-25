@@ -95,7 +95,7 @@ removeObserver = mkEffectFn2 \node observer -> do
 
 addDependent :: forall a. EffectFn2 (Node a) SomeNode Unit
 addDependent = mkEffectFn2 \node dependent -> do
-  trace $ "addDependent " <> show (Node.name' node) <> " -> " <> show (Node.name' dependent)
+--  trace $ "addDependent " <> show (Node.name' node) <> " -> " <> show (Node.name' dependent)
 
   oldRefcount <- runEffectFn1 Node.refcount node
   runEffectFn2 MutableArray.push (runFn2 Node._get Node._dependents node) dependent
@@ -158,7 +158,7 @@ disconnect = mkEffectFn1 \node -> do
 
 stabilize :: Effect Unit
 stabilize = do
-  trace "stabilize begin"
+--  trace "stabilize begin"
   currentStabilizationNum <- Ref.modify (_ + 1) globalLastStabilizationNum 
   Ref.write currentStabilizationNum globalCurrentStabilizationNum
 
@@ -170,7 +170,7 @@ stabilize = do
     adjustedHeight <- runEffectFn2 Node._read Node._adjustedHeight node
 
     if adjustedHeight > height then do
-      trace $ "stabilize: node " <> show name <> ": height bump " <> show height <> " -> " <> show adjustedHeight
+--      trace $ "stabilize: node " <> show name <> ": height bump " <> show height <> " -> " <> show adjustedHeight
 
       let dependents = runFn2 Node._get Node._dependents node
       foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
@@ -183,7 +183,7 @@ stabilize = do
       pure unit
 
     else do
-      trace $ "stabilize: node " <> show name <> ": compute at height " <> show height
+--      trace $ "stabilize: node " <> show name <> ": compute at height " <> show height
 
       let source = runFn2 Node._get Node._source node
       -- oldValue_opt <- runEffectFn2 Node._read Node._value node
@@ -200,12 +200,12 @@ stabilize = do
         let dependents = runFn2 Node._get Node._dependents node
         foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
           added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
-          if added then do
-            dependentName <- runEffectFn1 Node.name dependent
-            trace $ "stabilize: node " <> show dependentName <> " added to recompute queue"
-          else do
-            dependentName <- runEffectFn1 Node.name dependent
-            trace $ "stabilize: node " <> show dependentName <> " already in recompute queue"
+--          if added then do
+--            dependentName <- runEffectFn1 Node.name dependent
+--            trace $ "stabilize: node " <> show dependentName <> " added to recompute queue"
+--          else do
+--            dependentName <- runEffectFn1 Node.name dependent
+--            trace $ "stabilize: node " <> show dependentName <> " already in recompute queue"
           pure unit
 
         let observers = runFn2 Node._get Node._observers node
@@ -213,11 +213,12 @@ stabilize = do
           -- FIXME: should be done outside stabilize loop, to avoid interfering with the process
           -- (like in Specular - a FIFO queue)
           runEffectFn1 observer newValue
-      else
-        trace $ "stabilize: node " <> show name <> " cut off"
+      else do
+--        trace $ "stabilize: node " <> show name <> " cut off"
+        pure unit
 
   Ref.write (-1) globalCurrentStabilizationNum
-  trace "stabilize end"
+--  trace "stabilize end"
 
 -- * Computational nodes
 
@@ -279,8 +280,6 @@ switch = mkEffectFn3 \alwaysFire lhs fn -> do
   main_node_ref <- Ref.new Optional.none
   rhs_node <- runEffectFn1 Node.create 
     { compute: mkEffectFn1 \node -> do
-
-        trace "Computing bind_rhs"
 
         value_lhs <- runEffectFn1 Node.valueExc lhs
         let rhs = fn value_lhs
