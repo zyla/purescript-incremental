@@ -6,7 +6,7 @@ module Incremental.Internal.Node
 import Prelude
 
 import Effect (Effect)
-import Effect.Ref as Ref
+import Incremental.Internal.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn6, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn6)
 import Effect.Unsafe (unsafePerformEffect)
 import Incremental.Internal.Global (globalCurrentStabilizationNum)
@@ -147,6 +147,6 @@ name' node = unsafePerformEffect (runEffectFn1 name node)
 
 isChangingInCurrentStabilization :: forall a. EffectFn1 (Node a) Boolean
 isChangingInCurrentStabilization = mkEffectFn1 \node -> do
-  currentStabilizationNum <- Ref.read globalCurrentStabilizationNum
+  currentStabilizationNum <- runEffectFn1 Ref.read globalCurrentStabilizationNum
   changedAt <- runEffectFn1 get_changedAt node
   pure (changedAt == currentStabilizationNum)

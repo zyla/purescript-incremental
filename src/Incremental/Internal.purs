@@ -6,7 +6,6 @@ import Data.Function.Uncurried (Fn2, runFn2)
 import Effect (Effect, foreachE)
 import Effect.Console as Console
 import Effect.Ref (Ref)
-import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn4)
 import Effect.Unsafe (unsafePerformEffect)
 import Incremental.Internal.Effect (foreachUntil)
@@ -17,6 +16,7 @@ import Incremental.Internal.Node as Node
 import Incremental.Internal.Optional (Optional)
 import Incremental.Internal.Optional as Optional
 import Incremental.Internal.PriorityQueue as PQ
+import Incremental.Internal.Ref as Ref
 import Partial.Unsafe (unsafeCrashWith)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -31,7 +31,7 @@ globalRecomputeQueue = unsafePerformEffect $
     Node._nextInRecomputeQueue
 
 globalLastStabilizationNum :: Ref Int
-globalLastStabilizationNum = unsafePerformEffect $ Ref.new 0
+globalLastStabilizationNum = unsafePerformEffect $ runEffectFn1 Ref.new 0
 
 -- * Var
 
@@ -162,8 +162,10 @@ disconnect = mkEffectFn1 \node -> do
 stabilize :: Effect Unit
 stabilize = do
 --  trace "stabilize begin"
-  currentStabilizationNum <- Ref.modify (_ + 1) globalLastStabilizationNum 
-  Ref.write currentStabilizationNum globalCurrentStabilizationNum
+  oldStabilizationNum <- runEffectFn1 Ref.read globalLastStabilizationNum 
+  let currentStabilizationNum = oldStabilizationNum + 1
+  runEffectFn2 Ref.write globalLastStabilizationNum currentStabilizationNum
+  runEffectFn2 Ref.write globalCurrentStabilizationNum currentStabilizationNum 
 
   runEffectFn2 PQ.drain globalRecomputeQueue $ mkEffectFn1 \node -> do
 
@@ -220,7 +222,7 @@ stabilize = do
 --        trace $ "stabilize: node " <> show name <> " cut off"
         pure unit
 
-  Ref.write (-1) globalCurrentStabilizationNum
+  runEffectFn2 Ref.write globalCurrentStabilizationNum (-1)
 --  trace "stabilize end"
 
 -- * Computational nodes
@@ -280,7 +282,7 @@ bind_ = mkEffectFn2 \lhs fn -> do
 
 switch :: forall a b. EffectFn3 Boolean (Node a) (a -> Node b) (Node b)
 switch = mkEffectFn3 \alwaysFire lhs fn -> do
-  main_node_ref <- Ref.new Optional.none
+  main_node_ref <- runEffectFn1 Ref.new Optional.none
   rhs_node <- runEffectFn1 Node.create 
     { compute: mkEffectFn1 \node -> do
 
@@ -288,7 +290,7 @@ switch = mkEffectFn3 \alwaysFire lhs fn -> do
         let rhs = fn value_lhs
 
         -- adjust dependencies and height of the main node, taking new dependency into account
-        main_opt <- Ref.read main_node_ref
+        main_opt <- runEffectFn1 Ref.read main_node_ref
         let main = Optional.fromSome main_opt
 
         runEffectFn2 addDependent rhs (toSomeNode main)
@@ -322,7 +324,7 @@ switch = mkEffectFn3 \alwaysFire lhs fn -> do
           -- if we don't know the rhs yet, `compute` in rhs proxy will add it
           pure [toSomeNode rhs_node]
     }
-  Ref.write (Optional.some main) main_node_ref 
+  runEffectFn2 Ref.write main_node_ref (Optional.some main)
   pure main
 
 fold :: forall a b. EffectFn3 (Fn2 a b (Optional b)) b (Node a) (Node b)
