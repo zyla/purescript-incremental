@@ -11,6 +11,7 @@ import Effect.Unsafe (unsafePerformEffect)
 import Incremental.Internal.Effect (foreachUntil)
 import Incremental.Internal.Global (globalCurrentStabilizationNum)
 import Incremental.Internal.MutableArray as MutableArray
+import Incremental.Internal.Mutable (Field(..))
 import Incremental.Internal.Node (Node, SomeNode, Observer, toSomeNode, toSomeNodeArray)
 import Incremental.Internal.Node as Node
 import Incremental.Internal.Optional (Optional)
@@ -26,9 +27,9 @@ globalRecomputeQueue :: PQ.PQ SomeNode
 globalRecomputeQueue = unsafePerformEffect $
   runEffectFn4 PQ.new
     Optional.none
-    Node._height
-    Node._inRecomputeQueue
-    Node._nextInRecomputeQueue
+    (Field "height")
+    (Field "inRecomputeQueue")
+    (Field "nextInRecomputeQueue")
 
 globalLastStabilizationNum :: Ref Int
 globalLastStabilizationNum = unsafePerformEffect $ runEffectFn1 Ref.new 0
@@ -168,8 +169,6 @@ stabilize = do
   runEffectFn2 Ref.write globalCurrentStabilizationNum currentStabilizationNum 
 
   runEffectFn2 PQ.drain globalRecomputeQueue $ mkEffectFn1 \node -> do
-
-    name <- runEffectFn1 Node.name node
 
     height <- runEffectFn1 Node.get_height node
     adjustedHeight <- runEffectFn1 Node.get_adjustedHeight node
