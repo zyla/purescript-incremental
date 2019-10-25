@@ -63,8 +63,7 @@ exports.isNonEmpty = function(pq) {
   return pq.count > 0;
 };
 
-// removeMin :: forall a. EffectFn1 (PQ a) (Optional a)
-exports.removeMin = function(pq) {
+var removeMin = function(pq) {
   for(var priority = 0; priority < pq.priorityHeads.length; priority++) {
     var node = pq.priorityHeads[priority];
     if(node !== pq.none) {
@@ -77,3 +76,13 @@ exports.removeMin = function(pq) {
   }
   return pq.none;
 };
+
+// removeMin :: forall a. EffectFn1 (PQ a) (Optional a)
+exports.removeMin = removeMin;
+
+// drain :: forall a. EffectFn2 (PQ a) (EffectFn1 a Unit) Unit
+exports.drain = function(pq, fn) {
+  while(pq.count > 0) {
+    fn(removeMin(pq));
+  }
+}

@@ -1,5 +1,7 @@
 module Incremental.Internal.PriorityQueue where
 
+import Prelude
+
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn4)
 import Incremental.Internal.Mutable (Any, Field, Mutable)
 import Incremental.Internal.Optional (Optional)
@@ -18,3 +20,4 @@ foreign import add :: forall a. EffectFn2 (PQ a) a Boolean
 foreign import remove :: forall a. EffectFn2 (PQ a) a Boolean
 foreign import isNonEmpty :: forall a. EffectFn1 (PQ a) Boolean
 foreign import removeMin :: forall a. EffectFn1 (PQ a) (Optional a)
+foreign import drain :: forall a. EffectFn2 (PQ a) (EffectFn1 a Unit) Unit

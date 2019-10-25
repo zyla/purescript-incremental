@@ -2,9 +2,8 @@ module Incremental.Internal where
 
 import Prelude
 
-import Control.Monad.ST.Internal (foreach)
 import Data.Function.Uncurried (Fn2, runFn2)
-import Effect (Effect, foreachE, whileE)
+import Effect (Effect, foreachE)
 import Effect.Console as Console
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
@@ -163,9 +162,7 @@ stabilize = do
   currentStabilizationNum <- Ref.modify (_ + 1) globalLastStabilizationNum 
   Ref.write currentStabilizationNum globalCurrentStabilizationNum
 
-  whileE (runEffectFn1 PQ.isNonEmpty globalRecomputeQueue) do
-    node_opt <- runEffectFn1 PQ.removeMin globalRecomputeQueue
-    let node = Optional.fromSome node_opt
+  runEffectFn2 PQ.drain globalRecomputeQueue $ mkEffectFn1 \node -> do
 
     name <- runEffectFn1 Node.name node
 
