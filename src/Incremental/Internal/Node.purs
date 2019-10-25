@@ -5,7 +5,6 @@ module Incremental.Internal.Node
 
 import Prelude
 
-import Data.Function.Uncurried (runFn2)
 import Effect (Effect)
 import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn6, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn6)
@@ -25,22 +24,37 @@ foreign import data Node :: Type -> Type
 _source :: forall a. Field (Node a) Immutable (Source a)
 _source = Field "source"
 
+foreign import get_source :: forall a. EffectFn1 (Node a) (Source a)
+
 _dependents :: forall a. Field (Node a) Immutable (MutableArray SomeNode)
 _dependents = Field "dependents"
+
+foreign import get_dependents :: forall a. EffectFn1 (Node a) (MutableArray SomeNode)
 
 type Observer a = EffectFn1 a Unit
 
 _observers :: forall a. Field (Node a) Immutable (MutableArray (Observer a))
 _observers = Field "observers"
 
+foreign import get_observers :: forall a. EffectFn1 (Node a) (MutableArray (Observer a))
+
 _value :: forall a. Field (Node a) Mutable (Optional a)
 _value = Field "value"
+
+foreign import get_value :: forall a. EffectFn1 (Node a) (Optional a)
+foreign import set_value :: forall a. EffectFn2 (Node a) (Optional a) Unit
 
 _height :: forall a. Field (Node a) Mutable Int
 _height = Field "height"
 
+foreign import get_height :: forall a. EffectFn1 (Node a) Int
+foreign import set_height :: forall a. EffectFn2 (Node a) Int Unit
+
 _adjustedHeight :: forall a. Field (Node a) Mutable Int
 _adjustedHeight = Field "adjustedHeight"
+
+foreign import get_adjustedHeight :: forall a. EffectFn1 (Node a) Int
+foreign import set_adjustedHeight :: forall a. EffectFn2 (Node a) Int Unit
 
 _inRecomputeQueue :: forall a. Field (Node a) Mutable Boolean
 _inRecomputeQueue = Field "inRecomputeQueue"
@@ -51,10 +65,16 @@ _nextInRecomputeQueue = Field "nextInRecomputeQueue"
 _name :: forall a. Field (Node a) Mutable String
 _name = Field "name"
 
+foreign import get_name :: forall a. EffectFn1 (Node a) String
+foreign import set_name :: forall a. EffectFn2 (Node a) String Unit
+
 -- Note: this is not just a freshness timestamp!
 -- This should be only set when the node, treated as an Event, fires.
 _changedAt :: forall a. Field (Node a) Mutable Int
 _changedAt = Field "changedAt"
+
+foreign import get_changedAt :: forall a. EffectFn1 (Node a) Int
+foreign import set_changedAt :: forall a. EffectFn2 (Node a) Int Unit
 
 foreign import _new ::
   forall a.
@@ -103,13 +123,15 @@ create = mkEffectFn1 \source -> do
 
 refcount :: forall a. EffectFn1 (Node a) Int
 refcount = mkEffectFn1 \node -> do
-  numDependents <- runEffectFn1 MutableArray.length (runFn2 _get _dependents node)
-  numObservers <- runEffectFn1 MutableArray.length (runFn2 _get _observers node)
+  observers <- runEffectFn1 get_observers node
+  numDependents <- runEffectFn1 MutableArray.length observers
+  dependents <- runEffectFn1 get_dependents node
+  numObservers <- runEffectFn1 MutableArray.length dependents
   pure (numDependents + numObservers)
 
 valueExc :: forall a. EffectFn1 (Node a) a
 valueExc = mkEffectFn1 \node -> do
-  value_opt <- runEffectFn2 _read _value node
+  value_opt <- runEffectFn1 get_value node
   pure (Optional.fromSome value_opt)
 
 annotate :: forall a. EffectFn2 (Node a) String Unit
@@ -126,5 +148,5 @@ name' node = unsafePerformEffect (runEffectFn1 name node)
 isChangingInCurrentStabilization :: forall a. EffectFn1 (Node a) Boolean
 isChangingInCurrentStabilization = mkEffectFn1 \node -> do
   currentStabilizationNum <- Ref.read globalCurrentStabilizationNum
-  changedAt <- runEffectFn2 _read _changedAt node
+  changedAt <- runEffectFn1 get_changedAt node
   pure (changedAt == currentStabilizationNum)

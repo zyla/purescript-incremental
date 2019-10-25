@@ -45,12 +45,12 @@ newVar = mkEffectFn1 \val -> do
         pure (Optional.some value)
     , dependencies: pure []
     }
-  runEffectFn3 Node._write Node._value node (Optional.some val)
+  runEffectFn2 Node.set_value node (Optional.some val)
   pure (Var node)
 
 setVar :: forall a. EffectFn2 (Var a) a Unit
 setVar = mkEffectFn2 \(Var node) val -> do
-  runEffectFn3 Node._write Node._value node (Optional.some val)
+  runEffectFn2 Node.set_value node (Optional.some val)
   _ <- runEffectFn2 PQ.add globalRecomputeQueue (toSomeNode node)
   pure unit
 
@@ -65,14 +65,14 @@ newEvent :: forall a. Effect (Event a)
 newEvent = do
   node <- runEffectFn1 Node.create 
     { compute: mkEffectFn1 \node -> do
-        runEffectFn2 Node._read Node._value node
+        runEffectFn1 Node.get_value node
     , dependencies: pure []
     }
   pure (Event node)
 
 triggerEvent :: forall a. EffectFn2 (Event a) a Unit
 triggerEvent = mkEffectFn2 \(Event node) val -> do
-  runEffectFn3 Node._write Node._value node (Optional.some val)
+  runEffectFn2 Node.set_value node (Optional.some val)
   _ <- runEffectFn2 PQ.add globalRecomputeQueue (toSomeNode node)
   pure unit
 
@@ -84,13 +84,15 @@ readEvent (Event x) = x
 addObserver :: forall a. EffectFn2 (Node a) (Observer a) Unit
 addObserver = mkEffectFn2 \node observer -> do
   oldRefcount <- runEffectFn1 Node.refcount node
-  runEffectFn2 MutableArray.push (runFn2 Node._get Node._observers node) observer
+  observers <- runEffectFn1 Node.get_observers node
+  runEffectFn2 MutableArray.push observers observer
   runEffectFn2 handleRefcountChange node oldRefcount
 
 removeObserver :: forall a. EffectFn2 (Node a) (Observer a) Unit
 removeObserver = mkEffectFn2 \node observer -> do
   oldRefcount <- runEffectFn1 Node.refcount node
-  runEffectFn2 MutableArray.remove (runFn2 Node._get Node._observers node) observer
+  observers <- runEffectFn1 Node.get_observers node
+  runEffectFn2 MutableArray.remove observers observer
   runEffectFn2 handleRefcountChange node oldRefcount
 
 addDependent :: forall a. EffectFn2 (Node a) SomeNode Unit
@@ -98,13 +100,15 @@ addDependent = mkEffectFn2 \node dependent -> do
 --  trace $ "addDependent " <> show (Node.name' node) <> " -> " <> show (Node.name' dependent)
 
   oldRefcount <- runEffectFn1 Node.refcount node
-  runEffectFn2 MutableArray.push (runFn2 Node._get Node._dependents node) dependent
+  dependents <- runEffectFn1 Node.get_dependents node
+  runEffectFn2 MutableArray.push dependents dependent
   runEffectFn2 handleRefcountChange node oldRefcount
 
 removeDependent :: forall a. EffectFn2 (Node a) SomeNode Unit
 removeDependent = mkEffectFn2 \node dependent -> do
   oldRefcount <- runEffectFn1 Node.refcount node
-  runEffectFn2 MutableArray.remove (runFn2 Node._get Node._dependents node) dependent
+  dependents <- runEffectFn1 Node.get_dependents node
+  runEffectFn2 MutableArray.remove dependents dependent
   runEffectFn2 handleRefcountChange node oldRefcount
 
 handleRefcountChange :: forall a. EffectFn2 (Node a) Int Unit
@@ -129,26 +133,25 @@ connect :: forall a. EffectFn1 (Node a) Unit
 connect = mkEffectFn1 \node -> do
 --  trace $ "connect " <> show (Node.name' node)
 
-  let source = runFn2 Node._get Node._source node
-
+  source <- runEffectFn1 Node.get_source node
   dependencies <- source.dependencies
   foreachE dependencies \dependency -> do
     runEffectFn2 addDependent dependency (toSomeNode node)
-    dependencyHeight <- runEffectFn2 Node._read Node._height dependency
-    ourHeight <- runEffectFn2 Node._read Node._height node
+    dependencyHeight <- runEffectFn1 Node.get_height dependency
+    ourHeight <- runEffectFn1 Node.get_height node
     if dependencyHeight + 1 > ourHeight then do
-      runEffectFn3 Node._write Node._height node (dependencyHeight + 1)
-      runEffectFn3 Node._write Node._adjustedHeight node (dependencyHeight + 1)
+      runEffectFn2 Node.set_height node (dependencyHeight + 1)
+      runEffectFn2 Node.set_adjustedHeight node (dependencyHeight + 1)
     else
       pure unit
 
 --  trace $ "connect: node " <> show (Node.name' node) <> ": compute"
   value <- runEffectFn1 source.compute node
-  runEffectFn3 Node._write Node._value node value
+  runEffectFn2 Node.set_value node value
 
 disconnect :: forall a. EffectFn1 (Node a) Unit
 disconnect = mkEffectFn1 \node -> do
-  let source = runFn2 Node._get Node._source node
+  source <- runEffectFn1 Node.get_source node
 
   dependencies <- source.dependencies
   foreachE dependencies \dependency -> do
@@ -166,17 +169,17 @@ stabilize = do
 
     name <- runEffectFn1 Node.name node
 
-    height <- runEffectFn2 Node._read Node._height node
-    adjustedHeight <- runEffectFn2 Node._read Node._adjustedHeight node
+    height <- runEffectFn1 Node.get_height node
+    adjustedHeight <- runEffectFn1 Node.get_adjustedHeight node
 
     if adjustedHeight > height then do
 --      trace $ "stabilize: node " <> show name <> ": height bump " <> show height <> " -> " <> show adjustedHeight
 
-      let dependents = runFn2 Node._get Node._dependents node
+      dependents <- runEffectFn1 Node.get_dependents node
       foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
         runEffectFn2 ensureHeight dependent (adjustedHeight + 1)
 
-      runEffectFn3 Node._write Node._height node adjustedHeight
+      runEffectFn2 Node.set_height node adjustedHeight
 
       -- Reconsider the node with new height
       _ <- runEffectFn2 PQ.add globalRecomputeQueue node
@@ -185,19 +188,19 @@ stabilize = do
     else do
 --      trace $ "stabilize: node " <> show name <> ": compute at height " <> show height
 
-      let source = runFn2 Node._get Node._source node
-      -- oldValue_opt <- runEffectFn2 Node._read Node._value node
+      source <- runEffectFn1 Node.get_source node
+      -- oldValue_opt <- runEffectFn1 Node.get_value node
       newValue_opt <- runEffectFn1 source.compute node
 
       if Optional.isSome newValue_opt
         -- && shouldNotCutOff oldValue_opt newValue
       then do
         let newValue = Optional.fromSome newValue_opt
-        runEffectFn3 Node._write Node._value node (Optional.some newValue)
-        runEffectFn3 Node._write Node._changedAt node currentStabilizationNum
+        runEffectFn2 Node.set_value node (Optional.some newValue)
+        runEffectFn2 Node.set_changedAt node currentStabilizationNum
         
         -- FIXME: foreachE not desugared, closure is allocated for each element!
-        let dependents = runFn2 Node._get Node._dependents node
+        dependents <- runEffectFn1 Node.get_dependents node
         runEffectFn2 MutableArray.iterate dependents $ mkEffectFn1 \dependent -> do
           added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
 --          if added then do
@@ -208,7 +211,7 @@ stabilize = do
 --            trace $ "stabilize: node " <> show dependentName <> " already in recompute queue"
           pure unit
 
-        let observers = runFn2 Node._get Node._observers node
+        observers <- runEffectFn1 Node.get_observers node
         runEffectFn2 MutableArray.iterate observers $ mkEffectFn1 \observer -> do
           -- FIXME: should be done outside stabilize loop, to avoid interfering with the process
           -- (like in Specular - a FIFO queue)
@@ -244,7 +247,7 @@ mapOptional = mkEffectFn2 \fn a -> do
   let deps = [toSomeNode a]
   runEffectFn1 Node.create 
     { compute: mkEffectFn1 \_ -> do
-        value_a <- runEffectFn2 Node._read Node._value a
+        value_a <- runEffectFn1 Node.get_value a
         pure (if Optional.isSome value_a
               then fn (Optional.fromSome value_a)
               else Optional.none)
@@ -289,11 +292,11 @@ switch = mkEffectFn3 \alwaysFire lhs fn -> do
         let main = Optional.fromSome main_opt
 
         runEffectFn2 addDependent rhs (toSomeNode main)
-        dependencyHeight <- runEffectFn2 Node._read Node._height rhs
+        dependencyHeight <- runEffectFn1 Node.get_height rhs
         runEffectFn2 ensureHeight main (dependencyHeight + 1)
 
         -- disconnect from old dependency, if present
-        old_rhs_opt <- runEffectFn2 Node._read Node._value node
+        old_rhs_opt <- runEffectFn1 Node.get_value node
         if Optional.isSome old_rhs_opt then do
           runEffectFn2 removeDependent (Optional.fromSome old_rhs_opt) (toSomeNode main)
         else pure unit
@@ -308,11 +311,11 @@ switch = mkEffectFn3 \alwaysFire lhs fn -> do
         rhs <- runEffectFn1 Node.valueExc rhs_node
         isFiring <- runEffectFn1 Node.isChangingInCurrentStabilization rhs
         if alwaysFire || isFiring then do
-          runEffectFn2 Node._read Node._value rhs
+          runEffectFn1 Node.get_value rhs
         else
           pure Optional.none
     , dependencies: do
-        rhs_opt <- runEffectFn2 Node._read Node._value rhs_node
+        rhs_opt <- runEffectFn1 Node.get_value rhs_node
         if Optional.isSome rhs_opt then
           pure [toSomeNode rhs_node, toSomeNode (Optional.fromSome rhs_opt)]
         else
@@ -327,7 +330,7 @@ fold = mkEffectFn3 \fn initial a -> do
   let deps = [toSomeNode a]
   runEffectFn1 Node.create 
     { compute: mkEffectFn1 \node -> do
-        state_opt <- runEffectFn2 Node._read Node._value node
+        state_opt <- runEffectFn1 Node.get_value node
         let state = if Optional.isSome state_opt then Optional.fromSome state_opt else initial
 
         hasInput <- runEffectFn1 Node.isChangingInCurrentStabilization a
@@ -369,7 +372,7 @@ leftmost = mkEffectFn1 \inputs -> do
         runEffectFn2 foreachUntil inputs $ mkEffectFn1 \input -> do
           isFiring <- runEffectFn1 Node.isChangingInCurrentStabilization input
           if isFiring then
-            runEffectFn2 Node._read Node._value input
+            runEffectFn1 Node.get_value input
           else
             pure Optional.none
     , dependencies: pure (toSomeNodeArray inputs)
@@ -379,7 +382,7 @@ traceChanges :: forall a. EffectFn2 (EffectFn1 a Unit) (Node a) (Node a)
 traceChanges = mkEffectFn2 \fn input -> do
   runEffectFn1 Node.create 
     { compute: mkEffectFn1 \node -> do
-        value_opt <- runEffectFn2 Node._read Node._value input
+        value_opt <- runEffectFn1 Node.get_value input
         isFiring <- runEffectFn1 Node.isChangingInCurrentStabilization input
         if isFiring then runEffectFn1 fn (Optional.fromSome value_opt) else pure unit
         pure value_opt
@@ -390,8 +393,8 @@ traceChanges = mkEffectFn2 \fn input -> do
 
 ensureHeight :: forall a. EffectFn2 (Node a) Int Unit
 ensureHeight = mkEffectFn2 \node newHeight -> do
-  oldAdjustedHeight <- runEffectFn2 Node._read Node._adjustedHeight node
-  runEffectFn3 Node._write Node._adjustedHeight node (max oldAdjustedHeight newHeight)
+  oldAdjustedHeight <- runEffectFn1 Node.get_adjustedHeight node
+  runEffectFn2 Node.set_adjustedHeight node (max oldAdjustedHeight newHeight)
 
 -- * Utils
 
