@@ -198,7 +198,7 @@ stabilize = do
         
         -- FIXME: foreachE not desugared, closure is allocated for each element!
         let dependents = runFn2 Node._get Node._dependents node
-        foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
+        runEffectFn2 MutableArray.iterate dependents $ mkEffectFn1 \dependent -> do
           added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
 --          if added then do
 --            dependentName <- runEffectFn1 Node.name dependent
@@ -209,7 +209,7 @@ stabilize = do
           pure unit
 
         let observers = runFn2 Node._get Node._observers node
-        foreachE (MutableArray.unsafeToArray observers) \observer -> do
+        runEffectFn2 MutableArray.iterate observers $ mkEffectFn1 \observer -> do
           -- FIXME: should be done outside stabilize loop, to avoid interfering with the process
           -- (like in Specular - a FIFO queue)
           runEffectFn1 observer newValue
