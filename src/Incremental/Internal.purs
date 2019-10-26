@@ -136,6 +136,8 @@ connect = mkEffectFn1 \node -> do
 
   source <- runEffectFn1 Node.get_source node
   dependencies <- source.dependencies
+
+  -- TODO: replace foreachE with more efficient iteration
   foreachE dependencies \dependency -> do
     runEffectFn2 addDependent dependency (toSomeNode node)
     dependencyHeight <- runEffectFn1 Node.get_height dependency
@@ -177,7 +179,7 @@ stabilize = do
 --      trace $ "stabilize: node " <> show name <> ": height bump " <> show height <> " -> " <> show adjustedHeight
 
       dependents <- runEffectFn1 Node.get_dependents node
-      foreachE (MutableArray.unsafeToArray dependents) \dependent -> do
+      runEffectFn2 MutableArray.iterate dependents $ mkEffectFn1 \dependent -> do
         runEffectFn2 ensureHeight dependent (adjustedHeight + 1)
 
       runEffectFn2 Node.set_height node adjustedHeight
@@ -200,7 +202,6 @@ stabilize = do
         runEffectFn2 Node.set_value node (Optional.some newValue)
         runEffectFn2 Node.set_changedAt node currentStabilizationNum
         
-        -- FIXME: foreachE not desugared, closure is allocated for each element!
         dependents <- runEffectFn1 Node.get_dependents node
         runEffectFn2 MutableArray.iterate dependents $ mkEffectFn1 \dependent -> do
           added <- runEffectFn2 PQ.add globalRecomputeQueue dependent
