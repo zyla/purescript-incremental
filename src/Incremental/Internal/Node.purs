@@ -19,31 +19,63 @@ import Unsafe.Coerce (unsafeCoerce)
 
 foreign import data Node :: Type -> Type
 
--- * Node fields
-
-foreign import get_source :: forall a. EffectFn1 (Node a) (Source a)
-foreign import get_dependents :: forall a. EffectFn1 (Node a) (MutableArray SomeNode)
-
 type Observer a = EffectFn1 a Unit
 
+-- * Node fields
+
+-- [[[cog
+-- immutable_fields = [
+--   ['dependents', 'MutableArray SomeNode'],
+--   ['observers', 'MutableArray (Observer a)'],
+--   ['source', 'Source a'],
+-- ]
+-- mutable_fields = [
+--   ['adjustedHeight', 'Int'],
+--   ['changedAt', 'Int'],
+--   ['height', 'Int'],
+--   ['name', 'String'],
+--   ['value', 'Optional a'],
+-- ]
+-- for name, ty in immutable_fields:
+--     cog.outl("""
+--     foreign import get_%(name)s :: forall a. EffectFn1 (Node a) (%(ty)s)
+--     """ % {'name': name, 'ty': ty})
+-- for name, ty in mutable_fields:
+--     cog.outl("""
+--     foreign import get_%(name)s :: forall a. EffectFn1 (Node a) (%(ty)s)
+--     foreign import set_%(name)s :: forall a. EffectFn2 (Node a) (%(ty)s) Unit
+--     """ % {'name': name, 'ty': ty})
+-- ]]]
+
+foreign import get_dependents :: forall a. EffectFn1 (Node a) (MutableArray SomeNode)
+
+
 foreign import get_observers :: forall a. EffectFn1 (Node a) (MutableArray (Observer a))
+
+
+foreign import get_source :: forall a. EffectFn1 (Node a) (Source a)
+
+
+foreign import get_adjustedHeight :: forall a. EffectFn1 (Node a) (Int)
+foreign import set_adjustedHeight :: forall a. EffectFn2 (Node a) (Int) Unit
+
+
+foreign import get_changedAt :: forall a. EffectFn1 (Node a) (Int)
+foreign import set_changedAt :: forall a. EffectFn2 (Node a) (Int) Unit
+
+
+foreign import get_height :: forall a. EffectFn1 (Node a) (Int)
+foreign import set_height :: forall a. EffectFn2 (Node a) (Int) Unit
+
+
+foreign import get_name :: forall a. EffectFn1 (Node a) (String)
+foreign import set_name :: forall a. EffectFn2 (Node a) (String) Unit
+
 
 foreign import get_value :: forall a. EffectFn1 (Node a) (Optional a)
 foreign import set_value :: forall a. EffectFn2 (Node a) (Optional a) Unit
 
-foreign import get_height :: forall a. EffectFn1 (Node a) Int
-foreign import set_height :: forall a. EffectFn2 (Node a) Int Unit
-
-foreign import get_adjustedHeight :: forall a. EffectFn1 (Node a) Int
-foreign import set_adjustedHeight :: forall a. EffectFn2 (Node a) Int Unit
-
-foreign import get_name :: forall a. EffectFn1 (Node a) String
-foreign import set_name :: forall a. EffectFn2 (Node a) String Unit
-
--- Note: this is not just a freshness timestamp!
--- This should be only set when the node, treated as an Event, fires.
-foreign import get_changedAt :: forall a. EffectFn1 (Node a) Int
-foreign import set_changedAt :: forall a. EffectFn2 (Node a) Int Unit
+-- [[[end]]]
 
 foreign import _new ::
   forall a.
